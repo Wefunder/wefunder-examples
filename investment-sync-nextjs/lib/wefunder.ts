@@ -1,6 +1,7 @@
-// Everything this example calls on Wefunder, through the official SDK (`@wefunder/sdk`). Small on
-// purpose: every call the guide describes is one function here, so the guide
-// (https://docs.wefunder.com/guides/sync-investments-to-crm) and the code can be read side by side.
+// Everything this example calls on Wefunder, through the official SDK (`@wefunder/sdk`, 0.1.0-beta.12
+// or newer for the `installations` namespace). Small on purpose: every call the guide describes is
+// one function here, so the guide (https://docs.wefunder.com/guides/sync-investments-to-crm) and the
+// code can be read side by side. Nothing here touches `wf.raw`.
 import {
   Wefunder,
   WefunderError,
@@ -72,35 +73,31 @@ export function me(wf: Wefunder) {
   return wf.users.me();
 }
 
-// The install path goes through `wf.raw` (the generated operations, typed from the OpenAPI spec)
-// because the SDK has no `installations` namespace yet. `wf.unwrap` applies the same error
-// handling the typed namespaces use. When the namespace lands these become one-liners.
-
-export async function eligible(wf: Wefunder) {
-  const res = await wf.unwrap(wf.raw.listEligibleInstallTargets({ query: { target_type: "company" } }));
-  return res.data ?? [];
+export function eligible(wf: Wefunder) {
+  return wf.installations.eligibleTargets({ target_type: "company" });
 }
 
 export async function listInstallations(wf: Wefunder) {
-  const res = await wf.unwrap(wf.raw.listInstallations());
-  return res.data ?? [];
+  return (await wf.installations.list()).data ?? [];
 }
 
 // Install the app on a company and receive the company-owned token: the credential this
 // integration keeps for that company. The token is shown once. `data.attributes.scopes` is
 // what was GRANTED (requested ∩ what the app holds), which can be less than `scopes`.
+// `installOrMintToken` covers the race where a colleague installed between our `eligible` call
+// and this one: on 409 already_installed it mints a token for the existing install instead.
 export function install(wf: Wefunder, companyId: string, scopes: string[]) {
-  return wf.unwrap(wf.raw.createInstallation({ body: { target_type: "company", target_id: companyId, scopes } }));
+  return wf.installations.installOrMintToken({ target_type: "company", target_id: companyId, scopes });
 }
 
 // An install exists (a founder used the link, a colleague installed, or a crash lost the token):
 // mint the company-owned token for it. `token.scope` is the credential's effective grant.
 export function mintToken(wf: Wefunder, installationId: string) {
-  return wf.unwrap(wf.raw.createInstallationToken({ path: { external_id: installationId } }));
+  return wf.installations.mintToken(installationId);
 }
 
 export function revoke(wf: Wefunder, installationId: string) {
-  return wf.unwrap(wf.raw.revokeInstallation({ path: { external_id: installationId } }));
+  return wf.installations.revoke(installationId);
 }
 
 // ── Investment sync (guide, Step 4), per installed company ──────────────────────
@@ -186,7 +183,7 @@ export function retrieve(wf: Wefunder, id: string) {
 }
 
 export function offeringStats(wf: Wefunder, offeringId: string) {
-  return wf.unwrap(wf.raw.getOfferingStats({ path: { offering_id: offeringId } }));
+  return wf.offerings.stats(offeringId);
 }
 
 export { WefunderError };

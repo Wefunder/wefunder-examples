@@ -60,7 +60,7 @@ app/api/companies/[id]/{sync,revoke,reconnect,csv}
 app/api/wefunder/webhooks/route.ts        signed receiver (constructEventFromRequest) → sync the named company
 app/api/sync/route.ts                     sync every company (timer target)
 app/api/notifications/drain/route.ts      deliver pending money-feed lines
-lib/wefunder.ts                           every SDK call this app makes, one function each
+lib/wefunder.ts                           every SDK call this app makes, one function each (no wf.raw)
 lib/installs.ts                           install → company state; granted scopes; disconnected handling
 lib/notify.ts                             the money-feed rule and the outbox
 lib/store.ts                              persistence (Upstash / Redis / JSON file)
