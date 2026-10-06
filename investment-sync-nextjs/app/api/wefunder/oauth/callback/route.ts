@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
     s.user = { name: null, tokens };
     try {
       const who = await me(staffClient(s));
-      s.user.name = (who.data as { attributes?: { name?: string } } | undefined)?.attributes?.name ?? null;
+      s.user.name = (who as { attributes?: { name?: string } } | undefined)?.attributes?.name ?? null;
     } catch { /* read:profile may be absent; the name is cosmetic */ }
     log(s, `connected ${s.user.name ?? "a user"} (scope="${tokens.scope ?? ""}")`);
     await adoptPendingInstalls(s);

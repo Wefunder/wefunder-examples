@@ -68,9 +68,13 @@ export function exchangeCode(code: string, codeVerifier: string): Promise<TokenS
 
 // ── Installations (guide, Steps 2 and 3) ────────────────────────────────────────
 
-export async function me(wf: Wefunder) {
-  return wf.unwrap(wf.raw.getCurrentUser());
+export function me(wf: Wefunder) {
+  return wf.users.me();
 }
+
+// The install path goes through `wf.raw` (the generated operations, typed from the OpenAPI spec)
+// because the SDK has no `installations` namespace yet. `wf.unwrap` applies the same error
+// handling the typed namespaces use. When the namespace lands these become one-liners.
 
 export async function eligible(wf: Wefunder) {
   const res = await wf.unwrap(wf.raw.listEligibleInstallTargets({ query: { target_type: "company" } }));
