@@ -1,0 +1,27 @@
+{
+  "name": "investment-sync-nextjs",
+  "private": true,
+  "version": "0.2.0",
+  "description": "Reference Wefunder integration: install on the companies you serve, mirror their investments with the Investment Delta API, stay current with signed webhooks, post a money feed. Built on @wefunder/sdk.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@vercel/kv": "^3.0.0",
+    "@wefunder/sdk": "^0.1.0-beta.11",
+    "next": "^15.3.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "redis": "^4.7.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "typescript": "^5.8.0"
+  }
+}

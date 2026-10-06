@@ -1,0 +1,30 @@
+name: examples
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "17 6 * * 1"   # weekly, so an SDK release that breaks an example shows up here
+
+jobs:
+  investment-sync-nextjs:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: investment-sync-nextjs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: investment-sync-nextjs/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+        env:
+          WEFUNDER_CLIENT_ID: pk_test_ci
+          WEFUNDER_CLIENT_SECRET: ci
+          WEFUNDER_REDIRECT_URI: http://localhost:3000/api/wefunder/oauth/callback
+          WEFUNDER_WEBHOOK_SECRET: whsec_ci
