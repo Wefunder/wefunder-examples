@@ -6,9 +6,9 @@
 import type { Wefunder, TokenSet } from "@wefunder/sdk";
 import { WefunderAuthError, WefunderTokenPersistenceError } from "@wefunder/sdk";
 import { env, PII_SCOPE } from "./env.ts";
-import { WefunderError, companyClient, eligible, install as apiInstall, listInstallations, mintToken, sync, userClient } from "./wefunder.ts";
+import { WefunderError, companyClient, eligible, install as apiInstall, listInstallations, mintToken, sync, userClient, type Fetch } from "./wefunder.ts";
 import { enqueue } from "./notify.ts";
-import { emptySync, log, save, type CompanyState, type State } from "./store.ts";
+import { emptySync, load, log, save, withLock, type CompanyState, type State } from "./store.ts";
 
 type Installation = NonNullable<Awaited<ReturnType<typeof listInstallations>>[number]>;
 type Minted = Awaited<ReturnType<typeof mintToken>>["token"];
@@ -141,23 +141,42 @@ export async function discoverInstalls(s: State): Promise<{ adopted: string[]; l
   });
 }
 
-// Sync one installed company with its own token. A 401 means the founder removed the app (or
-// Wefunder withdrew the app's PII approval): mark it, stop, and leave the decision to a human.
-export async function syncCompany(s: State, company: CompanyState) {
-  if (!company.token) throw new Error(`no token for ${company.name} — mint one first`);
-  if (company.disconnected) throw new Error(`${company.name} is disconnected (${company.disconnected.reason}); not syncing`);
-  try {
-    return await sync(company, companyClient(company.token), {
-      journal: (line) => log(s, `${company.name}: ${line}`),
-      onChange: (held, record) => enqueue(s, company.id, held, record),
-    });
-  } catch (e) {
-    if (e instanceof WefunderError && e.status === 401) {
-      company.disconnected = { at: new Date().toISOString(), reason: e.message || "401 from the company token" };
-      log(s, `${company.name}: company token refused (401). A founder removed the app, or its PII approval was withdrawn. Marked disconnected; nothing will reinstall on its own.`);
+// Sync one installed company with its own token, one sync per company at a time (guide, Step 4).
+// The company lock is held from reading the cursor to saving the new one: a second sync of the
+// same company waits (up to 30s, then LockBusy) and starts from the cursor the first one saved.
+// A 401 means the founder removed the app (or Wefunder withdrew the app's PII approval): mark it,
+// stop, and leave the decision to a human.
+export async function syncCompany(s: State, company: CompanyState, f?: Fetch) {
+  return withLock(`company:${company.id}`, async () => {
+    // `s` was loaded before we waited for the lock; a sync that finished meanwhile moved this
+    // company's cursor on. Read it again now, or this run replays from the old position.
+    // Only the lock-owned fields are refreshed: the token and the disconnected flag in `s` may be
+    // newer than the stored ones (an install or re-mint this request has not saved yet).
+    const current = (await load()).companies[company.id];
+    if (current && current.installation_id === company.installation_id && (current.sync.generation ?? 0) > (company.sync.generation ?? 0)) {
+      company.sync = current.sync;
+      company.records = current.records;
     }
-    throw e;
-  }
+    if (company.disconnected) throw new Error(`${company.name} is disconnected (${company.disconnected.reason}); not syncing`);
+    const token = company.token;
+    if (!token) throw new Error(`no token for ${company.name} — mint one first`);
+    try {
+      const result = await sync(company, companyClient(token, f), {
+        journal: (line) => log(s, `${company.name}: ${line}`),
+        onChange: (held, record) => enqueue(s, company.id, held, record),
+      });
+      company.sync.generation = (company.sync.generation ?? 0) + 1;
+      await save(s);                                   // records, cursor and outbox lines, before the lock is released
+      return result;
+    } catch (e) {
+      if (e instanceof WefunderError && e.status === 401) {
+        company.disconnected = { at: new Date().toISOString(), reason: e.message || "401 from the company token" };
+        log(s, `${company.name}: company token refused (401). A founder removed the app, or its PII approval was withdrawn. Marked disconnected; nothing will reinstall on its own.`);
+        await save(s);
+      }
+      throw e;
+    }
+  });
 }
 
 // The staff user's view of what they could install on, for the dashboard.

@@ -76,3 +76,34 @@ test("an empty delta page still advances the cursor", async () => {
   await sync(s, fakeServer({ c5: { body: { data: [], meta: { mode: "delta", has_more: false, next_cursor: "c6", page_count: 1, published_through: null } } } }));
   assert.equal(s.sync.cursor, "c6");
 });
+
+test("a deactivated investor's record overwrites the held identity fields, never merges with them", async () => {
+  const s = fresh();
+  s.sync.cursor = "c1";
+  s.records = { inv_a: rec("inv_a", { investor: { id: "usr_1", name: "Jane Investor", email: "jane@example.com", city: "Austin" } }) as InvestmentRecord };
+  await sync(s, fakeServer({
+    c1: { body: { data: [rec("inv_a", { reason: "investor_deactivated", investor: { id: "usr_1", deactivated: true } })], meta: { mode: "delta", has_more: false, next_cursor: "c2", page_count: 1, published_through: null } } },
+  }));
+  assert.deepEqual(s.records["inv_a"].investor, { id: "usr_1", deactivated: true });   // no name, email or city left behind
+  assert.equal(s.records["inv_a"].reason, "investor_deactivated");
+});
+
+test("running again holds the same rows: a replayed delta and a re-list add no duplicates", async () => {
+  const s = fresh();
+  const server = fakeServer({
+    "": { body: { data: [rec("inv_a"), rec("inv_b"), rec("inv_c")], meta: { mode: "bootstrap", has_more: false, next_cursor: "c1", page_count: 1, published_through: null } } },
+    c1: { body: { data: [rec("inv_a"), rec("inv_b")], meta: { mode: "delta", has_more: false, next_cursor: "c1", page_count: 1, published_through: null } } },
+  });
+  await sync(s, server);
+  const first = Object.keys(s.records).sort();
+  assert.equal(first.length, 3);
+
+  await sync(s, server);                                       // the delta re-delivers two records we hold
+  await sync(s, server);                                       // and again: a run repeated after a crash
+  assert.deepEqual(Object.keys(s.records).sort(), first);
+
+  s.sync.cursor = null;                                        // a second run from scratch (a lost cursor)
+  await sync(s, server);
+  assert.deepEqual(Object.keys(s.records).sort(), first);
+  assert.equal(s.sync.bootstraps, 2);
+});
