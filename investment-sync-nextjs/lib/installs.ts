@@ -6,9 +6,9 @@
 import type { Wefunder, TokenSet } from "@wefunder/sdk";
 import { WefunderAuthError, WefunderTokenPersistenceError } from "@wefunder/sdk";
 import { env, PII_SCOPE } from "./env.ts";
-import { WefunderError, companyClient, eligible, install as apiInstall, listInstallations, mintToken, sync, userClient } from "./wefunder.ts";
+import { WefunderError, companyClient, eligible, install as apiInstall, listInstallations, mintToken, sync, userClient, type Fetch } from "./wefunder.ts";
 import { enqueue } from "./notify.ts";
-import { emptySync, log, save, type CompanyState, type State } from "./store.ts";
+import { commitSync, emptySync, load, log, save, withLock, type CompanyState, type State } from "./store.ts";
 
 type Installation = NonNullable<Awaited<ReturnType<typeof listInstallations>>[number]>;
 type Minted = Awaited<ReturnType<typeof mintToken>>["token"];
@@ -55,6 +55,11 @@ export function upsertCompany(s: State, installation: Installation, minted: Mint
   const target = a.target ?? {};
   const id = target.id ?? "";
   const existing = s.companies[id];
+  // A different installation is a new grant (its own scopes, its own token): the mirror starts
+  // over under it rather than continuing the old install's cursor, and `commitSync` baselines a
+  // new install at generation 0 regardless of what the old one reached. A re-mint for the SAME
+  // install keeps the cursor and records.
+  const sameInstall = !!existing && existing.installation_id === (installation.id ?? "");
   const grantedScopes = minted?.scope ? minted.scope.split(" ").filter(Boolean) : (a.scopes ?? existing?.scopes ?? []);
   const company: CompanyState = {
     id,
@@ -65,8 +70,8 @@ export function upsertCompany(s: State, installation: Installation, minted: Mint
     identity: grantedScopes.includes(PII_SCOPE),
     token: minted?.access_token ? { accessToken: minted.access_token, scope: minted.scope ?? "" } : existing?.token ?? null,
     disconnected: null,                              // a fresh install or mint means we are connected again
-    sync: existing?.sync ?? emptySync(),
-    records: existing?.records ?? {},
+    sync: sameInstall ? existing.sync : emptySync(),
+    records: sameInstall ? existing.records : {},
     installed_at: a.installed_at ?? existing?.installed_at ?? new Date().toISOString(),
   };
   s.companies[id] = company;
@@ -141,23 +146,51 @@ export async function discoverInstalls(s: State): Promise<{ adopted: string[]; l
   });
 }
 
-// Sync one installed company with its own token. A 401 means the founder removed the app (or
-// Wefunder withdrew the app's PII approval): mark it, stop, and leave the decision to a human.
-export async function syncCompany(s: State, company: CompanyState) {
-  if (!company.token) throw new Error(`no token for ${company.name} — mint one first`);
-  if (company.disconnected) throw new Error(`${company.name} is disconnected (${company.disconnected.reason}); not syncing`);
-  try {
-    return await sync(company, companyClient(company.token), {
-      journal: (line) => log(s, `${company.name}: ${line}`),
-      onChange: (held, record) => enqueue(s, company.id, held, record),
-    });
-  } catch (e) {
-    if (e instanceof WefunderError && e.status === 401) {
-      company.disconnected = { at: new Date().toISOString(), reason: e.message || "401 from the company token" };
-      log(s, `${company.name}: company token refused (401). A founder removed the app, or its PII approval was withdrawn. Marked disconnected; nothing will reinstall on its own.`);
+// Sync one installed company with its own token, one sync per company at a time (guide, Step 4).
+// The company lock is held from reading the cursor to committing the new one: a second sync of
+// the same company waits (up to 30s, then LockBusy) and starts from the cursor the first one saved.
+// The commit itself is conditional on the generation this sync read (`commitSync`): if the lock's
+// lease expired and a successor committed first, this result is discarded, not written over it.
+// A sync that does not commit leaves `s` exactly as it found it — cursor, records and queued
+// lines — so whatever the caller saves afterwards cannot leak a half-result past the lock.
+// A 401 means the founder removed the app (or Wefunder withdrew the app's PII approval): mark it,
+// stop, and leave the decision to a human.
+export async function syncCompany(s: State, company: CompanyState, f?: Fetch) {
+  return withLock(`company:${company.id}`, async () => {
+    // `s` was loaded before we waited for the lock; a sync that finished meanwhile moved this
+    // company's cursor on. Read it again now, or this run replays from the old position.
+    // Only the lock-owned fields are refreshed: the token and the disconnected flag in `s` may be
+    // newer than the stored ones (an install or re-mint this request has not saved yet).
+    const current = (await load()).companies[company.id];
+    if (current && current.installation_id === company.installation_id && (current.sync.generation ?? 0) > (company.sync.generation ?? 0)) {
+      company.sync = current.sync;
+      company.records = current.records;
     }
-    throw e;
-  }
+    if (company.disconnected) throw new Error(`${company.name} is disconnected (${company.disconnected.reason}); not syncing`);
+    const token = company.token;
+    if (!token) throw new Error(`no token for ${company.name} — mint one first`);
+    const base = company.sync.generation ?? 0;
+    const before = { sync: structuredClone(company.sync), records: structuredClone(company.records), notifications: structuredClone(s.notifications) };
+    const discard = () => { company.sync = before.sync; company.records = before.records; s.notifications = before.notifications; };
+    try {
+      const result = await sync(company, companyClient(token, f), {
+        journal: (line) => log(s, `${company.name}: ${line}`),
+        onChange: (held, record) => enqueue(s, company.id, held, record),
+      });
+      await commitSync(s, company.id, base);           // records, cursor and outbox lines, before the lock is released
+      return result;
+    } catch (e) {
+      discard();
+      if (e instanceof WefunderError && e.status === 401) {
+        company.disconnected = { at: new Date().toISOString(), reason: e.message || "401 from the company token" };
+        log(s, `${company.name}: company token refused (401). A founder removed the app, or its PII approval was withdrawn. Marked disconnected; nothing will reinstall on its own.`);
+        await save(s);
+      } else {
+        log(s, `${company.name}: sync not committed: ${(e as Error).message}`);
+      }
+      throw e;
+    }
+  });
 }
 
 // The staff user's view of what they could install on, for the dashboard.

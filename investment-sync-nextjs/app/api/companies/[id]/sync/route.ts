@@ -2,7 +2,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { WefunderError } from "@wefunder/sdk";
 import { syncCompany } from "@/lib/installs.ts";
-import { drain } from "@/lib/notify.ts";
+import { drainOutbox } from "@/lib/notify.ts";
 import { env } from "@/lib/env.ts";
 import { load, save, log } from "@/lib/store.ts";
 
@@ -15,7 +15,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   let error: string | null = null;
   try {
     result = await syncCompany(s, company);
-    await drain(s, env.slackWebhookUrl);
+    await drainOutbox(s, env.slackWebhookUrl);
   } catch (e) {
     error = e instanceof WefunderError ? `${e.status} ${e.type}: ${e.message}${e.requestId ? ` (request ${e.requestId})` : ""}` : (e as Error).message;
     log(s, `${company.name}: sync failed: ${error}`);

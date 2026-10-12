@@ -219,9 +219,9 @@ export default async function Home() {
             : (
               <div className="table-wrap">
                 <table>
-                  <thead><tr><th>Event</th><th>Id</th><th>Mode</th><th>Created</th><th>Received</th></tr></thead>
+                  <thead><tr><th>Event</th><th>Id</th><th>Installation</th><th>Mode</th><th>Received</th><th>Processed</th></tr></thead>
                   <tbody>{s.events.slice(0, 20).map((e) => (
-                    <tr key={e.id}><td className="mono">{e.event}</td><td className="mono t3">{e.id}</td><td className="t2">{e.mode}</td><td className="t3">{ago(e.created_at)}</td><td className="t3">{ago(e.received_at)}</td></tr>
+                    <tr key={`${e.id}|${e.installation_id}`}><td className="mono">{e.event}</td><td className="mono t3">{e.id}</td><td className="mono t3">{e.installation_id || "—"}</td><td className="t2">{e.mode}</td><td className="t3">{ago(e.received_at)}</td><td className="t3">{e.processed_at === null ? `queued${e.attempts ? ` (${e.attempts} failed)` : ""}` : e.processed_at ? `${e.outcome ?? "done"} ${ago(e.processed_at)}` : "—"}</td></tr>
                   ))}</tbody>
                 </table>
               </div>
