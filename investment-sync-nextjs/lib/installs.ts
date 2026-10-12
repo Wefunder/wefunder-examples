@@ -55,6 +55,11 @@ export function upsertCompany(s: State, installation: Installation, minted: Mint
   const target = a.target ?? {};
   const id = target.id ?? "";
   const existing = s.companies[id];
+  // A different installation is a new grant (its own scopes, its own token): the mirror starts
+  // over under it rather than continuing the old install's cursor, and `commitSync` baselines a
+  // new install at generation 0 regardless of what the old one reached. A re-mint for the SAME
+  // install keeps the cursor and records.
+  const sameInstall = !!existing && existing.installation_id === (installation.id ?? "");
   const grantedScopes = minted?.scope ? minted.scope.split(" ").filter(Boolean) : (a.scopes ?? existing?.scopes ?? []);
   const company: CompanyState = {
     id,
@@ -65,8 +70,8 @@ export function upsertCompany(s: State, installation: Installation, minted: Mint
     identity: grantedScopes.includes(PII_SCOPE),
     token: minted?.access_token ? { accessToken: minted.access_token, scope: minted.scope ?? "" } : existing?.token ?? null,
     disconnected: null,                              // a fresh install or mint means we are connected again
-    sync: existing?.sync ?? emptySync(),
-    records: existing?.records ?? {},
+    sync: sameInstall ? existing.sync : emptySync(),
+    records: sameInstall ? existing.records : {},
     installed_at: a.installed_at ?? existing?.installed_at ?? new Date().toISOString(),
   };
   s.companies[id] = company;

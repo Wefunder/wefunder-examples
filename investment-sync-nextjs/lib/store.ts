@@ -89,6 +89,9 @@ export type Notification = {
   created_at: string;
   delivered_at: string | null;
   attempts: number;
+  // Set (and persisted) BEFORE a post is attempted, cleared after it. A drain skips a line whose
+  // claim is live, so a drain that outlived its lock's lease cannot be joined by a second poster.
+  claimed_until?: string | null;
 };
 
 export type State = {
@@ -199,6 +202,8 @@ export async function commitSync(state: State, companyId: string, base: number):
     const stored = await load();
     const ours = state.companies[companyId];
     const theirs = stored.companies[companyId];
+    // A different stored installation is a mirror this install does not continue (`upsertCompany`
+    // starts a new install from generation 0), so its generation is not this sync's baseline.
     const found = theirs && theirs.installation_id === ours.installation_id ? (theirs.sync.generation ?? 0) : 0;
     if (found !== base) throw new StaleSync(companyId, base, found);
     const before = ours.sync.generation ?? 0;
@@ -237,8 +242,15 @@ export function merge(ours: State, stored: State): void {
   ours.events = union(ours.events, stored.events, eventKey,
     (a, b) => (!!a.processed_at !== !!b.processed_at ? (a.processed_at ? a : b) : (a.attempts ?? 0) >= (b.attempts ?? 0) ? a : b),
     (e) => e.received_at, (e) => e.processed_at === null);   // rows from before the inbox have no processed_at: finished
+  // A line both copies hold keeps the further-along state. A delivery attempt moves a line
+  // pending → claimed (attempts + 1, claimed_until set) → delivered, or → cleared (claim nulled,
+  // still pending). So: delivered beats pending; more attempts beat fewer (a persisted claim must
+  // survive a save by a copy that never saw it); at equal attempts the cleared claim is the later
+  // state and beats the live one.
   ours.notifications = union(ours.notifications, stored.notifications, (n) => n.id,
-    (a, b) => (!!a.delivered_at !== !!b.delivered_at ? (a.delivered_at ? a : b) : a.attempts >= b.attempts ? a : b),
+    (a, b) => (!!a.delivered_at !== !!b.delivered_at ? (a.delivered_at ? a : b)
+      : a.attempts !== b.attempts ? (a.attempts > b.attempts ? a : b)
+      : !!a.claimed_until !== !!b.claimed_until ? (a.claimed_until ? b : a) : a),
     (n) => n.created_at, (n) => !n.delivered_at);
 }
 
