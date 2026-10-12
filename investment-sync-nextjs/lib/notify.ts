@@ -8,7 +8,7 @@
 // before/after difference and can never reconstruct the line.
 import { randomBytes } from "node:crypto";
 import type { Fetch } from "./wefunder.ts";
-import type { InvestmentRecord, Notification, State } from "./store.ts";
+import { save, withLock, type InvestmentRecord, type Notification, type State } from "./store.ts";
 import { isTombstone } from "./wefunder.ts";
 import { fmtMoney } from "./summary.ts";
 
@@ -49,8 +49,10 @@ export function enqueue(s: State, company: string, held: InvestmentRecord | null
   return n;
 }
 
-// Deliver pending lines. With SLACK_WEBHOOK_URL set, each becomes a Slack post; without it the
-// dashboard's "Money feed" is the only output and lines are marked delivered.
+// Deliver the pending lines in `s`. With SLACK_WEBHOOK_URL set, each becomes a Slack post; without
+// it the dashboard's "Money feed" is the only output and lines are marked delivered. Pure with
+// respect to the store: requests go through `drainOutbox`, which serializes delivery. Calling this
+// directly on a copy another request also holds posts the same line twice.
 export async function drain(s: State, slackWebhookUrl: string | undefined, f: Fetch = fetch): Promise<{ delivered: number; failed: number }> {
   let delivered = 0, failed = 0;
   for (const n of s.notifications.filter((n) => !n.delivered_at)) {
@@ -67,4 +69,19 @@ export async function drain(s: State, slackWebhookUrl: string | undefined, f: Fe
     }
   }
   return { delivered, failed };
+}
+
+// The outbox is shared by every request: `save()` unions queued lines into whatever copy saves
+// next, so two requests syncing different companies both hold the same pending line. Delivery
+// therefore runs under one `outbox` lock, and the sequence is: save (bring in every pending line
+// and every delivered mark), post, save (publish the marks). A second request waits, saves, sees
+// the line delivered, and skips it. Without the lock the two posts overlap and both succeed, and
+// the money feed announces one investment twice.
+export async function drainOutbox(s: State, slackWebhookUrl: string | undefined, f: Fetch = fetch): Promise<{ delivered: number; failed: number }> {
+  return withLock("outbox", async () => {
+    await save(s);
+    const result = await drain(s, slackWebhookUrl, f);
+    await save(s);
+    return result;
+  });
 }

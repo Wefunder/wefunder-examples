@@ -8,10 +8,19 @@
 //   - `withLock(name, fn)` serializes work on one name. `syncCompany` (lib/installs.ts) holds
 //     `company:<id>` for the whole sync, so two syncs of one company (a webhook nudge racing the
 //     timer) run one after the other, and the second starts from the cursor the first saved.
+//     `drainOutbox` (lib/notify.ts) holds `outbox` around load → post → persist, so two requests
+//     never post the same Slack line.
+//   - `commitSync()` is the ONLY way a sync's cursor and records reach the store, and it is fenced
+//     by `sync.generation`: the commit is accepted only if the stored generation is still the one
+//     the sync started from. The remote lock is a lease (`ttlMs`), and a sync can outlive it: a
+//     long bootstrap, or the SDK's rate-limit waits. If a successor syncs and commits meanwhile,
+//     the expired holder's commit is refused (StaleSync) and discarded, never written over the
+//     newer cursor. The lock prevents wasted work; the fence prevents lost work.
 //   - `save()` is a short read-merge-write under the `store` lock. A copy loaded earlier can never
-//     put back an older cursor and records for a company (`sync.generation` decides), and the
-//     webhook inbox and the outbox are unioned, so a stored delivery or a queued Slack line is
-//     never dropped by a request that loaded the blob before it was written.
+//     put back an older cursor and records for a company (`sync.generation` decides, and only
+//     `commitSync` ever raises it), and the webhook inbox and the outbox are unioned, so a stored
+//     delivery or a queued Slack line is never dropped by a request that loaded the blob before it
+//     was written.
 //
 // Everything else in the blob (the log, the staff user's token set, install metadata) is
 // last-writer-wins. A production integration keeps one row per company and per inbox entry in a
@@ -31,8 +40,9 @@ export type SyncState = {
   published_through: string | null;
   last_synced_at: string | null;
   bootstraps: number;             // how many times we listed from scratch (a 410 forces one)
-  // +1 for every sync committed under the company lock. `save()` keeps whichever copy of
-  // cursor + records has the higher generation, so a stale copy never moves the cursor back.
+  // +1 for every sync committed through `commitSync`, which refuses to commit unless the stored
+  // generation is still the one the sync read. `save()` keeps whichever copy of cursor + records
+  // has the higher generation, so a stale copy never moves the cursor back.
   generation: number;
 };
 
@@ -167,6 +177,43 @@ export async function save(state: State): Promise<void> {
   });
 }
 
+// Thrown by `commitSync` when the stored generation moved while this sync ran: another holder
+// committed first (the lease expired, or a stale copy raced). The caller discards its result.
+export class StaleSync extends Error {
+  constructor(companyId: string, expected: number, found: number) {
+    super(`${companyId}: sync result discarded; stored generation is ${found}, this sync started from ${expected}`);
+  }
+}
+
+// Test seam: lets a test make the next write fail to prove a failed commit leaves nothing behind.
+export const testHooks: { beforeWrite?: (s: State) => void } = {};
+
+// Commit one company's sync result: the cursor, records and the outbox lines queued with them.
+// Conditional on the stored generation still being `base` — the generation the sync started
+// from. Under the `store` lock: load, compare, bump to base + 1, merge, write. A failed compare
+// writes nothing and throws StaleSync; a failed write throws with the generation NOT bumped, so
+// the caller's copy still reads as the base generation and a later `save()` of it cannot win a
+// tie against whoever commits next.
+export async function commitSync(state: State, companyId: string, base: number): Promise<void> {
+  await withLock("store", async () => {
+    const stored = await load();
+    const ours = state.companies[companyId];
+    const theirs = stored.companies[companyId];
+    const found = theirs && theirs.installation_id === ours.installation_id ? (theirs.sync.generation ?? 0) : 0;
+    if (found !== base) throw new StaleSync(companyId, base, found);
+    const before = ours.sync.generation ?? 0;
+    ours.sync.generation = base + 1;
+    try {
+      merge(state, stored);
+      testHooks.beforeWrite?.(state);
+      await write(state);
+    } catch (e) {
+      ours.sync.generation = before;
+      throw e;
+    }
+  });
+}
+
 export async function update(fn: (s: State) => void | Promise<void>): Promise<State> {
   const s = await load();
   await fn(s);
@@ -218,7 +265,8 @@ export function log(s: State, line: string) {
 // process (a JSON file is only safe with one server process anyway). Redis and Upstash use
 // `SET key token NX PX ttl` with a random token, and release only while the token still matches,
 // so a lock that expired and was taken by another request is never deleted by its first owner.
-// `ttlMs` must exceed the longest `fn`; a sync that outlives it loses its exclusivity.
+// `ttlMs` is a lease, not a guarantee: a sync that outlives it loses its exclusivity, which is
+// why the sync's commit is fenced by generation (`commitSync`) rather than trusting the lock.
 
 export class LockBusy extends Error {
   constructor(name: string) { super(`${name} is busy (another request holds its lock); try again shortly`); }

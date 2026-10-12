@@ -8,7 +8,7 @@ import { WefunderAuthError, WefunderTokenPersistenceError } from "@wefunder/sdk"
 import { env, PII_SCOPE } from "./env.ts";
 import { WefunderError, companyClient, eligible, install as apiInstall, listInstallations, mintToken, sync, userClient, type Fetch } from "./wefunder.ts";
 import { enqueue } from "./notify.ts";
-import { emptySync, load, log, save, withLock, type CompanyState, type State } from "./store.ts";
+import { commitSync, emptySync, load, log, save, withLock, type CompanyState, type State } from "./store.ts";
 
 type Installation = NonNullable<Awaited<ReturnType<typeof listInstallations>>[number]>;
 type Minted = Awaited<ReturnType<typeof mintToken>>["token"];
@@ -142,8 +142,12 @@ export async function discoverInstalls(s: State): Promise<{ adopted: string[]; l
 }
 
 // Sync one installed company with its own token, one sync per company at a time (guide, Step 4).
-// The company lock is held from reading the cursor to saving the new one: a second sync of the
-// same company waits (up to 30s, then LockBusy) and starts from the cursor the first one saved.
+// The company lock is held from reading the cursor to committing the new one: a second sync of
+// the same company waits (up to 30s, then LockBusy) and starts from the cursor the first one saved.
+// The commit itself is conditional on the generation this sync read (`commitSync`): if the lock's
+// lease expired and a successor committed first, this result is discarded, not written over it.
+// A sync that does not commit leaves `s` exactly as it found it — cursor, records and queued
+// lines — so whatever the caller saves afterwards cannot leak a half-result past the lock.
 // A 401 means the founder removed the app (or Wefunder withdrew the app's PII approval): mark it,
 // stop, and leave the decision to a human.
 export async function syncCompany(s: State, company: CompanyState, f?: Fetch) {
@@ -160,19 +164,24 @@ export async function syncCompany(s: State, company: CompanyState, f?: Fetch) {
     if (company.disconnected) throw new Error(`${company.name} is disconnected (${company.disconnected.reason}); not syncing`);
     const token = company.token;
     if (!token) throw new Error(`no token for ${company.name} — mint one first`);
+    const base = company.sync.generation ?? 0;
+    const before = { sync: structuredClone(company.sync), records: structuredClone(company.records), notifications: structuredClone(s.notifications) };
+    const discard = () => { company.sync = before.sync; company.records = before.records; s.notifications = before.notifications; };
     try {
       const result = await sync(company, companyClient(token, f), {
         journal: (line) => log(s, `${company.name}: ${line}`),
         onChange: (held, record) => enqueue(s, company.id, held, record),
       });
-      company.sync.generation = (company.sync.generation ?? 0) + 1;
-      await save(s);                                   // records, cursor and outbox lines, before the lock is released
+      await commitSync(s, company.id, base);           // records, cursor and outbox lines, before the lock is released
       return result;
     } catch (e) {
+      discard();
       if (e instanceof WefunderError && e.status === 401) {
         company.disconnected = { at: new Date().toISOString(), reason: e.message || "401 from the company token" };
         log(s, `${company.name}: company token refused (401). A founder removed the app, or its PII approval was withdrawn. Marked disconnected; nothing will reinstall on its own.`);
         await save(s);
+      } else {
+        log(s, `${company.name}: sync not committed: ${(e as Error).message}`);
       }
       throw e;
     }

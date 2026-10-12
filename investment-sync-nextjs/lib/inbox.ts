@@ -8,7 +8,7 @@
 // sync. `save()` (lib/store.ts) enforces the key even when two deliveries race.
 import { env } from "./env.ts";
 import { syncCompany } from "./installs.ts";
-import { drain } from "./notify.ts";
+import { drainOutbox } from "./notify.ts";
 import { eventKey, load, log, save, type State, type WebhookEventRecord } from "./store.ts";
 import { WefunderError, type Fetch } from "./wefunder.ts";
 
@@ -79,7 +79,7 @@ export async function processInbox(opts: { fetch?: Fetch; limit?: number } = {})
   }
   result.processed = queued.filter((e) => e.processed_at !== null).length;
   result.failed = queued.length - result.processed;
-  if (result.synced.length > 0) await drain(s, env.slackWebhookUrl);
+  if (result.synced.length > 0) await drainOutbox(s, env.slackWebhookUrl);
   await save(s);
   return result;
 }

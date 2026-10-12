@@ -94,11 +94,14 @@ test/                                     runs against the SDK with an injected 
 
 ## What this example simplifies
 
-- **One JSON blob of state instead of database rows.** Syncs are serialized per company, and
-  `save()` merges, so a cursor never moves back and no inbox row or outbox line is lost. The rest
-  of the blob is last-writer-wins: the log, install metadata, and the staff user's token set.
-  `lib/store.ts` explains the details. A production integration keeps one row per company and per
-  inbox entry, and uses a row lock and a unique index instead.
+- **One JSON blob of state instead of database rows.** Syncs are serialized per company, a
+  sync's result is committed only if the stored generation is still the one it started from (so a
+  sync that outlived its lock's lease cannot overwrite a successor), Slack delivery runs under one
+  outbox lock, and `save()` merges, so a cursor never moves back and no inbox row or outbox line
+  is lost or posted twice. The rest of the blob is last-writer-wins: the log, install metadata,
+  and the staff user's token set. `lib/store.ts` explains the details. A production integration
+  keeps one row per company and per inbox entry, and uses a row lock, a conditional update on the
+  cursor row, and a unique index instead.
 - **The file store's lock only covers one process.** That is enough for `npm run dev` or a single
   `next start`. Anything with more than one instance needs Upstash or Redis, which the Vercel
   deploy needs anyway.
