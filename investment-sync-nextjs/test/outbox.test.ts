@@ -2,7 +2,7 @@
 // line post it once.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CLAIM_MS, drain, drainOutbox, enqueue, POST_TIMEOUT_MS } from "../lib/notify.ts";
+import { CLAIM_MS, drain, drainOutbox, enqueue, outboxStore, POST_TIMEOUT_MS } from "../lib/notify.ts";
 import { load, save } from "../lib/store.ts";
 import { company, rec, resetStore, useTempStore } from "./helpers.ts";
 
@@ -45,15 +45,17 @@ test("a failed post stays pending for the next drain, which is also serialized",
 
 // Redis / Upstash: the outbox lock is a lease. If A's drain outlives it, B gets the lock while A
 // is still posting. The file mutex cannot expire, so the expired-lease situation is reproduced at
-// the layer below the lock: B drains while A's post is in flight, exactly as it would after
-// acquiring an expired lease. A's claim, persisted before the post, is what B must honour.
-test("after a lease expiry, the next drain skips a line whose claim is live and posts nothing twice", async () => {
+// the layer below the lock: both A and B have loaded the line as pending, A claims and posts, and
+// B drains while A's post is in flight, exactly as it would after acquiring an expired lease.
+// The claim is a compare-and-set on the stored row, so B loses it and skips the line.
+test("after a lease expiry, a drain that loaded the line as pending before the first claim still posts nothing twice", async () => {
   await resetStore([company("co_1", "inst_1", "tok_1", "c1")]);
   const seed = await load();
   enqueue(seed, "co_1", null, rec("inv_a", { amounts: { committed_cents: 100, currency: "usd" } }));
   enqueue(seed, "co_1", null, rec("inv_b", { amounts: { committed_cents: 200, currency: "usd" } }));
   await save(seed);
   const a = await load();
+  const b = await load();                                         // B loaded BEFORE A claimed anything
   const posts: string[] = [];
   let releaseStall!: () => void;
   const stalled = new Promise<void>((r) => { releaseStall = r; });
@@ -63,10 +65,9 @@ test("after a lease expiry, the next drain skips a line whose claim is live and 
     return new Response("ok");
   }) as unknown as typeof fetch;
 
-  const aDrain = drain(a, "https://hooks.slack.test/x", slack, () => save(a));
-  await new Promise((r) => setTimeout(r, 20));                    // A has claimed + persisted, and is mid-post
-  const b = await load();                                         // B: the lease expired; it holds the lock now
-  const rb = await drainOutbox(b, "https://hooks.slack.test/x", slack);
+  const aDrain = drain(a, "https://hooks.slack.test/x", slack, outboxStore(a));
+  await new Promise((r) => setTimeout(r, 20));                    // A has won inv_a and is mid-post
+  const rb = await drain(b, "https://hooks.slack.test/x", slack, outboxStore(b));   // B: the lease expired; it drains now
   releaseStall();
   const ra = await aDrain;
 
@@ -74,7 +75,20 @@ test("after a lease expiry, the next drain skips a line whose claim is live and 
   assert.equal(new Set(posts).size, 2);
   assert.deepEqual([ra, rb], [{ delivered: 1, failed: 0 }, { delivered: 1, failed: 0 }]);
   const stored = (await load()).notifications;
-  assert.ok(stored.every((n) => n.delivered_at && !n.claimed_until));
+  assert.ok(stored.every((n) => n.delivered_at && !n.claimed_until && !n.claimed_by));
+  assert.equal(stored.find((n) => n.investment === "inv_a")!.attempts, 1);   // B's failed claim is not an attempt
+});
+
+test("two drains racing for the same line from the same pending copy: exactly one wins the claim", async () => {
+  await resetStore([company("co_1", "inst_1", "tok_1", "c1")]);
+  const seed = await load();
+  enqueue(seed, "co_1", null, rec("inv_a", { amounts: { committed_cents: 100, currency: "usd" } }));
+  await save(seed);
+  const a = await load();
+  const b = await load();
+  const wins = await Promise.all([outboxStore(a).claim(a.notifications[0]), outboxStore(b).claim(b.notifications[0])]);
+  assert.deepEqual(wins.sort(), [false, true]);
+  assert.equal((await load()).notifications[0].attempts, 1);
 });
 
 test("a post is cut off well inside its claim, so a claim never expires mid-post", () => {

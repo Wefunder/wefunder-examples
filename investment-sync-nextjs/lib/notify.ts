@@ -8,7 +8,7 @@
 // before/after difference and can never reconstruct the line.
 import { randomBytes } from "node:crypto";
 import type { Fetch } from "./wefunder.ts";
-import { save, withLock, type InvestmentRecord, type Notification, type State } from "./store.ts";
+import { claimNotification, save, settleNotification, withLock, type InvestmentRecord, type Notification, type State } from "./store.ts";
 import { isTombstone } from "./wefunder.ts";
 import { fmtMoney } from "./summary.ts";
 
@@ -55,43 +55,54 @@ export function enqueue(s: State, company: string, held: InvestmentRecord | null
 export const CLAIM_MS = 60_000;
 export const POST_TIMEOUT_MS = 15_000;
 
-const claimLive = (n: Notification, now = Date.now()) => !!n.claimed_until && new Date(n.claimed_until).getTime() > now;
+// How a drain takes and releases a line. `outboxStore` claims on the STORED row under the store
+// lock, so two drains that both loaded the line as pending cannot both win it; `localClaims` is
+// the in-memory equivalent for a state that is not backed by the store (the unit test).
+export type Claims = {
+  claim(n: Notification): Promise<boolean>;             // true = this drain owns the line now
+  settle(n: Notification, delivered: boolean): Promise<void>;
+};
+
+export const localClaims: Claims = {
+  claim: async (n) => { if (n.delivered_at || (n.claimed_until && new Date(n.claimed_until).getTime() > Date.now())) return false; n.attempts += 1; n.claimed_until = new Date(Date.now() + CLAIM_MS).toISOString(); return true; },
+  settle: async (n, delivered) => { if (delivered) n.delivered_at = new Date().toISOString(); n.claimed_until = null; },
+};
+
+export function outboxStore(s: State, owner = `drain_${randomBytes(6).toString("hex")}`): Claims {
+  return {
+    claim: (n) => claimNotification(s, n.id, owner, CLAIM_MS),
+    settle: (n, delivered) => settleNotification(s, n.id, owner, delivered),
+  };
+}
 
 // Deliver the pending lines in `s`. With SLACK_WEBHOOK_URL set, each becomes a Slack post; without
 // it the dashboard's "Money feed" is the only output and lines are marked delivered.
 //
-// Per line: claim it (`claimed_until`), `persist` the claim, post with a timeout, then record the
-// outcome and `persist` again. The claim is written BEFORE the post, so a second drain that gets
-// the lock after this one's lease expired (lib/store.ts) finds the line claimed and skips it;
-// the timeout keeps the post inside the claim. `persist` is how the claim reaches the store;
-// requests go through `drainOutbox`, which supplies it and serializes drains. Without `persist`
-// (the unit test) the claims live only in `s`.
-export async function drain(s: State, slackWebhookUrl: string | undefined, f: Fetch = fetch, persist: () => Promise<void> = async () => {}): Promise<{ delivered: number; failed: number }> {
+// Per line: `claims.claim` (a compare-and-set on the stored row), post with a timeout, then
+// `claims.settle`. A line this drain did not win is skipped — another drain, possibly one whose
+// lock lease this drain took over, is posting it. The timeout keeps the post inside the claim.
+// Requests go through `drainOutbox`, which supplies the store-backed claims and serializes drains.
+export async function drain(s: State, slackWebhookUrl: string | undefined, f: Fetch = fetch, claims: Claims = localClaims): Promise<{ delivered: number; failed: number }> {
   let delivered = 0, failed = 0;
-  // By id, re-read after every persist: `save()` merges and may replace `s.notifications` (and a
-  // line in it) with what another drain stored meanwhile, so a line delivered elsewhere while
-  // this loop ran is seen as delivered, not posted again.
+  // By id, re-read before each line: a claim or settle mirrors the stored row into `s`, and a
+  // line delivered elsewhere while this loop ran must be seen as delivered, not posted again.
   const ids = s.notifications.filter((n) => !n.delivered_at).map((n) => n.id);
   for (const id of ids) {
-    let n = s.notifications.find((x) => x.id === id);
-    if (!n || n.delivered_at || claimLive(n)) continue;                  // done, or another drain is posting it right now
-    n.attempts += 1;
-    if (!slackWebhookUrl) { n.delivered_at = new Date().toISOString(); delivered++; continue; }
-    n.claimed_until = new Date(Date.now() + CLAIM_MS).toISOString();
-    await persist();
-    n = s.notifications.find((x) => x.id === id) ?? n;
+    const before = s.notifications.find((x) => x.id === id);
+    if (!before || before.delivered_at) continue;
+    if (!slackWebhookUrl) { before.attempts += 1; before.delivered_at = new Date().toISOString(); delivered++; continue; }
+    if (!(await claims.claim(before))) continue;                         // another drain is posting it right now
+    const n = s.notifications.find((x) => x.id === id) ?? before;
+    let ok = false;
     try {
       const company = s.companies[n.company]?.name ?? n.company;
       const res = await f(slackWebhookUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: `${company} · ${n.line}` }), signal: AbortSignal.timeout(POST_TIMEOUT_MS) });
-      if (!res.ok) throw new Error(`Slack ${res.status}`);
-      n.delivered_at = new Date().toISOString();
-      delivered++;
+      ok = res.ok;
     } catch {
-      failed++;                                                          // stays pending; the next drain retries it
-    } finally {
-      n.claimed_until = null;
-      await persist();
+      ok = false;
     }
+    await claims.settle(n, ok);                                          // delivered, or pending again for the next drain
+    if (ok) delivered++; else failed++;
   }
   return { delivered, failed };
 }
@@ -99,12 +110,13 @@ export async function drain(s: State, slackWebhookUrl: string | undefined, f: Fe
 // The outbox is shared by every request: `save()` unions queued lines into whatever copy saves
 // next, so two requests syncing different companies both hold the same pending line. Delivery
 // runs under one `outbox` lock (save first, so this copy holds every pending line and every
-// delivered mark), and each line's claim and outcome are saved as they happen. The lock keeps
-// drains from contending; the persisted claims keep a drain that outlived the lock's lease from
-// being joined by the next one. Without both, the money feed announces one investment twice.
+// delivered mark), and each line is won by a compare-and-set on the stored row before its post.
+// The lock keeps drains from contending; the atomic claims keep a drain that outlived the lock's
+// lease from being joined by the next one, even when both loaded the line as pending. Without
+// both, the money feed announces one investment twice.
 export async function drainOutbox(s: State, slackWebhookUrl: string | undefined, f: Fetch = fetch): Promise<{ delivered: number; failed: number }> {
   return withLock("outbox", async () => {
     await save(s);
-    return drain(s, slackWebhookUrl, f, () => save(s));
+    return drain(s, slackWebhookUrl, f, outboxStore(s));
   });
 }

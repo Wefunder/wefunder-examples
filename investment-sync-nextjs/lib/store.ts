@@ -89,9 +89,11 @@ export type Notification = {
   created_at: string;
   delivered_at: string | null;
   attempts: number;
-  // Set (and persisted) BEFORE a post is attempted, cleared after it. A drain skips a line whose
-  // claim is live, so a drain that outlived its lock's lease cannot be joined by a second poster.
+  // Taken on the STORED row under the store lock (`claimNotification`) before a post is
+  // attempted, and cleared after it. A drain only posts a line whose claim it won, so a drain
+  // that outlived its lock's lease cannot be joined by a second poster.
   claimed_until?: string | null;
+  claimed_by?: string | null;
 };
 
 export type State = {
@@ -217,6 +219,49 @@ export async function commitSync(state: State, companyId: string, base: number):
       throw e;
     }
   });
+}
+
+const claimLive = (n: Notification, now = Date.now()) => !!n.claimed_until && new Date(n.claimed_until).getTime() > now;
+
+// Claim one outbox line for `owner`: under the store lock, read the STORED row and take it only if
+// it is still pending and unclaimed (or `owner` already holds it); write; mirror the stored row
+// into `state`. Returns whether this worker owns the line. Two drains that both loaded the line
+// as pending cannot both win: the second one's compare runs against the first one's write.
+export async function claimNotification(state: State, id: string, owner: string, ttlMs: number): Promise<boolean> {
+  return withLock("store", async () => {
+    const stored = await load();
+    const row = stored.notifications.find((n) => n.id === id);
+    if (!row || row.delivered_at || (claimLive(row) && row.claimed_by !== owner)) {
+      if (row) adoptNotification(state, row);
+      return false;
+    }
+    row.attempts += 1;
+    row.claimed_until = new Date(Date.now() + ttlMs).toISOString();
+    row.claimed_by = owner;
+    await write(stored);
+    adoptNotification(state, row);
+    return true;
+  });
+}
+
+// Record a claimed line's outcome on the STORED row (delivered, or pending again with the claim
+// released), only while `owner` still holds the claim; mirror it into `state`.
+export async function settleNotification(state: State, id: string, owner: string, delivered: boolean): Promise<void> {
+  await withLock("store", async () => {
+    const stored = await load();
+    const row = stored.notifications.find((n) => n.id === id);
+    if (!row || row.claimed_by !== owner) { if (row) adoptNotification(state, row); return; }
+    if (delivered) row.delivered_at = new Date().toISOString();
+    row.claimed_until = null;
+    row.claimed_by = null;
+    await write(stored);
+    adoptNotification(state, row);
+  });
+}
+
+function adoptNotification(state: State, row: Notification): void {
+  const i = state.notifications.findIndex((n) => n.id === row.id);
+  if (i >= 0) state.notifications[i] = row; else state.notifications.unshift(row);
 }
 
 export async function update(fn: (s: State) => void | Promise<void>): Promise<State> {
