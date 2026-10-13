@@ -99,6 +99,8 @@ test("errorKey keeps the documented reasons and falls back to the status; descri
   assert.equal(errorKey(err(409, "reference_conflict")), "reference_conflict");
   assert.equal(errorKey(err(422, "offering_not_open")), "offering_not_open");
   assert.equal(errorKey(err(422, "offering_has_no_page")), "offering_has_no_page");
+  assert.equal(errorKey(err(403, "personal_invites_not_enabled")), "personal_invites_not_enabled");
+  assert.match(describeErrorKey("personal_invites_not_enabled"), /isn't enabled for this app/);
   assert.equal(errorKey(err(404, "not_found")), "404");
   assert.equal(errorKey(err(422, "validation_error")), "422");
   assert.equal(errorKey(new Error("network down")), "unexpected");

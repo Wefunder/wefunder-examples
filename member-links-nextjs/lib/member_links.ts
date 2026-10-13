@@ -151,6 +151,8 @@ const MESSAGES: Record<string, string> = {
     "This member's link on that deal is already bound to a different Wefunder account than the wefunder_user_id we have on file for them.",
   offering_not_open: "That deal isn't open for investment right now.",
   offering_has_no_page: "That deal has no Wefunder page to send members to yet.",
+  personal_invites_not_enabled:
+    "Pre-binding links to a member's Wefunder account isn't enabled for this app yet. Clear the member's wefunder_user_id, or ask Wefunder to enable it.",
   unknown_offering: "That deal isn't one this portal lists.",
   "401": "Wefunder rejected the access token. Check WEFUNDER_ACCESS_TOKEN.",
   "403": "The token is missing a scope. It needs read:invite_links and write:invite_links, on both the token and the install.",
@@ -160,7 +162,7 @@ const MESSAGES: Record<string, string> = {
   "422": "Wefunder couldn't create the link. The server log has the details.",
 };
 
-const KNOWN_CODES = new Set(["reference_conflict", "offering_not_open", "offering_has_no_page"]);
+const KNOWN_CODES = new Set(["reference_conflict", "offering_not_open", "offering_has_no_page", "personal_invites_not_enabled"]);
 
 export function errorKey(e: unknown): string {
   if (!(e instanceof MemberLinkError)) return "unexpected";

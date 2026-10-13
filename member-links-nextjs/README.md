@@ -76,7 +76,8 @@ npm run typecheck
 6. Copy a `wefunder_user_id` from the admin table into that member's `wefunder_user_id` in
    `data/members.json`, then click **Invest** on a *different* deal as that member. The new link
    is bound to their account from the start (`state: bound` before anyone opens it), so a
-   forwarded copy is useless to anyone else.
+   forwarded copy is useless to anyone else. Pre-binding is in preview and enabled per app:
+   until Wefunder turns it on for yours, this step answers `403 personal_invites_not_enabled`.
 7. Click **Cancel** on a link nobody invested through. Its state becomes `canceled` and any
    pre-bound account is released (`wefunder_user_id` goes back to `null`). If that member clicks
    **Invest** again, Wefunder mints a fresh link (`201`), because a canceled link is no longer
@@ -90,6 +91,7 @@ npm run typecheck
 | `422 offering_not_open` | The offering isn't open for investment | The deal isn't open right now |
 | `422 offering_has_no_page` | The offering has no Wefunder page to link to | The deal has no page yet |
 | `404 not_found` | The install can't reach the offering, the token is a user token, or the `wefunder_user_id` is unknown | The deal couldn't be found for this install |
+| `403 personal_invites_not_enabled` | You sent a `wefunder_user_id` and pre-binding isn't enabled for your app | Pre-binding isn't enabled; clear the member's `wefunder_user_id` or ask Wefunder |
 
 The redirect back to the portal carries only a short key (`?error=offering_not_open`). The page
 maps it to a fixed sentence, so a crafted URL can't put words on your portal. Wefunder's full
@@ -102,7 +104,9 @@ message and `request_id` go to the server log.
 - **Pre-binding with `wefunder_user_id`.** Once you know a member's account (from an earlier
   link's `wefunder_user_id`), pass it on their next links. Those links are bound from the start.
   Repeating a `reference` with a `wefunder_user_id` binds a live link nobody has redeemed yet. If
-  the link is already bound to someone else, the answer is `409 reference_conflict`.
+  the link is already bound to someone else, the answer is `409 reference_conflict`. Pre-binding
+  is a per-app preview (`403 personal_invites_not_enabled` until Wefunder enables it); unbound
+  links need nothing extra.
 - **Wrong-account modal.** Someone who opens a bound link while logged out, or signed in to a
   different account, gets no private access and no invited pricing. Wefunder tells them the
   invitation is for a different account and offers to sign them in with the right one. It shows
