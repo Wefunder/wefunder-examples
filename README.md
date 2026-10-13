@@ -10,6 +10,7 @@ snippet-level examples that feed the API reference live in the SDK repositories
 | Example | What it shows | Stack | Guide |
 |---|---|---|---|
 | [`investment-sync-nextjs`](./investment-sync-nextjs) | Install on the companies you serve, mirror their investments with the Investment Delta API, stay current with signed webhooks, post a money feed | Next.js 15, TypeScript, `@wefunder/sdk` | [Sync investments to your CRM](https://docs.wefunder.com/guides/sync-investments-to-crm) |
+| [`member-links-nextjs`](./member-links-nextjs) | A syndicate member portal: send each member to a deal page through their own member link, see who bound and invested, cancel unused links | Next.js 15, TypeScript, `fetch` (the SDK doesn't cover member links yet) | [Member Links](https://docs.wefunder.com/partner-api/spvs/member-links) |
 
 ## Using an example
 

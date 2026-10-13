@@ -28,3 +28,23 @@ jobs:
           WEFUNDER_CLIENT_SECRET: ci
           WEFUNDER_REDIRECT_URI: http://localhost:3000/api/wefunder/oauth/callback
           WEFUNDER_WEBHOOK_SECRET: whsec_ci
+
+  member-links-nextjs:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: member-links-nextjs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: member-links-nextjs/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+        env:
+          WEFUNDER_ACCESS_TOKEN: at_live_ci
+          WEFUNDER_OFFERING_IDS: ofr_ci
