@@ -1,0 +1,24 @@
+{
+  "name": "member-links-nextjs",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Reference Wefunder integration: a syndicate member portal that sends each member to a deal page through their own member link, and an admin view of every link's state. Plain fetch; @wefunder/sdk does not cover member links yet.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test test/*.test.ts"
+  },
+  "dependencies": {
+    "next": "^15.3.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "typescript": "^5.8.0"
+  }
+}
