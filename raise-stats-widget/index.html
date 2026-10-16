@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Our raise on Wefunder</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 40px auto; max-width: 640px; color: #111; }
+    h1 { font-size: 22px; }
+    #wf-raise { font-size: 22px; padding: 16px; border: 1px solid #ddd; border-radius: 8px; }
+    p.note { color: #666; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <h1>Our raise on Wefunder</h1>
+
+  <!-- The block below is the snippet from https://docs.wefunder.com/guides/raise-stats-widget,
+       unchanged. Fill in WF_KEY (your app's publishable key, pk_live_…) and WF_COMPANY (your
+       co_… id); both are on your app's page at https://wefunder.com/developers. -->
+<p id="wf-raise">Loading…</p>
+<script>
+  const WF_KEY = "pk_live_YOUR_PUBLISHABLE_KEY";
+  const WF_COMPANY = "co_YOUR_COMPANY_ID";
+
+  fetch(`https://api.wefunder.com/companies/${WF_COMPANY}`, {
+    headers: { Authorization: `Bearer ${WF_KEY}` },
+  })
+    .then((r) => r.json())
+    .then(({ data }) => {
+      const a = data.attributes;
+      const r = a.current_raise;
+      const usd = (cents) => (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+      const el = document.getElementById("wf-raise");
+      if (!r) {
+        el.textContent = `${usd(a.totals.raised_on_wefunder_all_time_cents)} raised on Wefunder`;
+        return;
+      }
+      const verb = r.testing_the_waters ? "reserved" : "raised";
+      const people = r.testing_the_waters ? "reservations" : "investors";
+      el.textContent = `${usd(r.amount_raised_cents)} ${verb} of ${usd(r.funding_target_cents)} · ${r.investor_count} ${people}`;
+    })
+    .catch(() => { document.getElementById("wf-raise").textContent = "See our raise on Wefunder"; });
+</script>
+
+  <p class="note">The browser calls api.wefunder.com directly. The publishable key reads public
+  data only, so it is safe in a page; never put the client secret (sk_live_…) here.</p>
+</body>
+</html>

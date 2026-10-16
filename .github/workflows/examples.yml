@@ -28,3 +28,15 @@ jobs:
           WEFUNDER_CLIENT_SECRET: ci
           WEFUNDER_REDIRECT_URI: http://localhost:3000/api/wefunder/oauth/callback
           WEFUNDER_WEBHOOK_SECRET: whsec_ci
+
+  raise-stats-widget:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: raise-stats-widget
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
