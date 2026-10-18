@@ -1,0 +1,20 @@
+{
+  "name": "wefunder-example-investment-session-server",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Companion server for the Expo investment-session example: holds the Wefunder install token, mints hosted investment sessions with @wefunder/sdk, reports their status to the app.",
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file-if-missing=.env --experimental-strip-types server.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@wefunder/sdk": "^1.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "^5.8.0"
+  },
+  "engines": { "node": ">=22.9" }
+}
