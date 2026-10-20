@@ -40,3 +40,29 @@ jobs:
         with:
           node-version: 22
       - run: npm test
+
+  investment-session-expo:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: investment-session-expo
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            investment-session-expo/package-lock.json
+            investment-session-expo/server/package-lock.json
+      # The Expo app: return-URL handling is tested in plain Node, no device or Metro needed.
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      # The companion server: the mint handler against a mocked fetch, no network.
+      - run: npm ci
+        working-directory: investment-session-expo/server
+      - run: npm run typecheck
+        working-directory: investment-session-expo/server
+      - run: npm test
+        working-directory: investment-session-expo/server

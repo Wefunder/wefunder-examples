@@ -11,6 +11,7 @@ snippet-level examples that feed the API reference live in the SDK repositories
 |---|---|---|---|
 | [`investment-sync-nextjs`](./investment-sync-nextjs) | Install on the companies you serve, mirror their investments with the Investment Delta API, stay current with signed webhooks, post a money feed | Next.js 15, TypeScript, `@wefunder/sdk` | [Sync investments to your CRM](https://docs.wefunder.com/guides/sync-investments-to-crm) |
 | [`raise-stats-widget`](./raise-stats-widget) | Show a company's live raise (amount, goal, investor count) on its own site from one static page, using a publishable key straight from the browser | HTML, no build, no SDK | [Show Your Raise on Your Own Site](https://docs.wefunder.com/guides/raise-stats-widget) |
+| [`investment-session-expo`](./investment-session-expo) | Send an investor from an iOS or Android app through Wefunder's hosted checkout in a system browser sheet and handle the return; a small Node server mints the session so the install token never reaches the phone | Expo (React Native), TypeScript, Node, `@wefunder/sdk` | [Investment sessions on mobile](https://docs.wefunder.com/guides/investment-sessions-mobile) |
 
 ## Using an example
 

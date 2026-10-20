@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "Wefunder investment session",
+    "slug": "wefunder-investment-session-example",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "wefunderexample",
+    "ios": {
+      "bundleIdentifier": "com.wefunder.example.investmentsession"
+    },
+    "android": {
+      "package": "com.wefunder.example.investmentsession"
+    },
+    "plugins": [
+      "expo-web-browser"
+    ]
+  }
+}
