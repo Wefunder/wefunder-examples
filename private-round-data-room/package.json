@@ -1,0 +1,30 @@
+{
+  "name": "private-round-data-room",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Reference Wefunder integration: a data room on your own domain for a private round. Raise totals behind your login, one member link per data-room user to the round's page on Wefunder, or a hosted checkout session for a user whose email you know. Built on @wefunder/sdk.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "check:bundle": "node scripts/check-bundle.mjs"
+  },
+  "dependencies": {
+    "@wefunder/sdk": "^1.1.0",
+    "next": "^15.3.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "server-only": "^0.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "typescript": "^5.8.0"
+  },
+  "engines": {
+    "node": ">=22.9"
+  }
+}

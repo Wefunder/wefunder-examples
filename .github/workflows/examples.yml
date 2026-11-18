@@ -66,3 +66,28 @@ jobs:
         working-directory: investment-session-expo/server
       - run: npm test
         working-directory: investment-session-expo/server
+
+  private-round-data-room:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: private-round-data-room
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: private-round-data-room/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+        env:
+          WEFUNDER_INSTALL_TOKEN: at_test_ci_canary_token
+          WEFUNDER_OFFERING_ID: ofr_ci
+          SESSION_SECRET: ci
+      # The built browser files must carry neither the installation token nor the SDK.
+      - run: npm run check:bundle
+        env:
+          WEFUNDER_INSTALL_TOKEN: at_test_ci_canary_token
