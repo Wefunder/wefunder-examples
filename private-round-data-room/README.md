@@ -13,7 +13,7 @@ ways to get there, side by side:
 |---|---|---|
 | Sends the investor to | The round's page on Wefunder, with access to the private round already in place | Wefunder's hosted checkout for the round, then back to your data room |
 | You give Wefunder | Your own user id, as an opaque `reference`. No email | The investor's email |
-| The investor uses | Any Wefunder account. The link binds to the first account that invests through it | The account for that email |
+| Who can use it | Any Wefunder account, until the link binds to the first one that invests through it | The one person you address it to, by email |
 | Stability | Generally available | **Beta** |
 | Pick it when | You want them to read the round's page and terms on Wefunder first, or you do not know which email they will use there | They have read everything in your data room, you know their email, and you want the shortest path to checkout and a return to your site |
 
@@ -183,9 +183,9 @@ same in more detail.
   state, per offering. Writes are queued inside one process, which is enough for `npm run dev`
   or a single `next start`. More than one instance needs a real table keyed on (your user id,
   offering id), and the one-minute caches in `lib/status.ts` become per-instance.
-- **The investor's email comes from the fixture.** An investment session is addressed to an
-  email, and Wefunder's checkout is for that person. Use an address the user has confirmed with
-  you, never one typed into a form by whoever is signed in.
+- **The investor's email comes from the fixture.** An investment session is for one recipient,
+  named by an email. Use an address the user has confirmed with you, never one typed into a
+  form by whoever is signed in.
 - **Documents are placeholders.** Serving files to signed-in users is your data room's own job.
 - **No pre-binding.** Once a member link binds, its `wefunder_user_id` is saved; passing it when
   you mint that person's next link binds the new link up front. That option is enabled per app,
