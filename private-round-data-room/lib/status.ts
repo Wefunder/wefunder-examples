@@ -5,7 +5,9 @@
 //
 //   - raise totals are read at most once a minute for everyone together;
 //   - a user's link or session is read at most once a minute, only after they clicked (there is
-//     an id to read), and never again once it has settled (invested / completed / canceled ...);
+//     an id to read), and not again once it has settled. The one exception is an `invested`
+//     link, re-read every quarter of an hour: `invested` means "has an active investment", so
+//     if that investment is later canceled the link reads `bound` again;
 //   - nothing in this file creates anything. Links and sessions are minted on a click, in the
 //     two routes under app/api/invest/.
 //
@@ -22,6 +24,7 @@ import { getCheckoutSession, getMemberLink, raiseStats, type CheckoutSessionView
 
 export const RAISE_TTL_MS = 60_000;
 export const USER_TTL_MS = 60_000;
+export const INVESTED_TTL_MS = 15 * 60_000;
 // A "check now" (the investor just came back from checkout) may skip the minute, but not this.
 export const FORCE_FLOOR_MS = 5_000;
 
@@ -63,6 +66,12 @@ const due = (checkedAt: number | undefined, now: number, force: boolean) => {
   return force ? age >= FORCE_FLOOR_MS : age >= USER_TTL_MS;
 };
 
+function linkDue(record: UserRecord, now: number, force: boolean): boolean {
+  if (!record.linkId || record.linkState === "canceled") return false;
+  if (record.linkState === "invested") return now - (record.linkCheckedAt ?? 0) >= INVESTED_TTL_MS;
+  return due(record.linkCheckedAt, now, force);
+}
+
 export async function userStatus(offeringId: string, userId: string, deps: Deps & Clock & { force?: boolean }): Promise<UserStatus> {
   const now = (deps.now ?? Date.now)();
   const force = deps.force ?? false;
@@ -70,7 +79,7 @@ export async function userStatus(offeringId: string, userId: string, deps: Deps 
   let record = await recordFor(offeringId, userId);
   let error: unknown;
 
-  if (record.linkId && !linkSettled(record.linkState) && due(record.linkCheckedAt, now, force)) {
+  if (record.linkId && linkDue(record, now, force)) {
     try {
       record = await recordLink(offeringId, userId, await getMemberLink(record.linkId, once), now);
     } catch (e) {

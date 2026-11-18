@@ -2,7 +2,7 @@
 import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { recordFor } from "../lib/store.ts";
-import { FORCE_FLOOR_MS, RAISE_TTL_MS, USER_TTL_MS, cachedRaise, forgetRaises, recordLink, recordSession, userStatus } from "../lib/status.ts";
+import { FORCE_FLOOR_MS, INVESTED_TTL_MS, RAISE_TTL_MS, USER_TTL_MS, cachedRaise, forgetRaises, recordLink, recordSession, userStatus } from "../lib/status.ts";
 import type { CheckoutSessionView, MemberLinkView } from "../lib/wefunder.ts";
 import { OFFERING, apiError, fakeWefunder, memberLink, session, useTempStore } from "./helpers.ts";
 
@@ -43,13 +43,28 @@ test("a minted link is re-read once it is a minute old, by id, and the new state
   assert.equal((await recordFor(OFFERING, USER)).linkState, "invested");
 });
 
-test("a settled link or session is never asked about again", async () => {
-  await recordLink(OFFERING, USER, link("invested"), T0);
+test("a canceled link and a finished session are never asked about again", async () => {
+  await recordLink(OFFERING, USER, link("canceled"), T0);
   await recordSession(OFFERING, USER, checkout("completed"), T0);
   const { deps, calls } = fakeWefunder(() => ({ body: {} }));
-  const status = await userStatus(OFFERING, USER, { ...deps, now: () => T0 + 10 * USER_TTL_MS, force: true });
+  const status = await userStatus(OFFERING, USER, { ...deps, now: () => T0 + 100 * INVESTED_TTL_MS, force: true });
   assert.equal(calls.length, 0);
   assert.equal(status.watching, false);
+});
+
+test("an invested link is re-read every quarter of an hour, and reads bound again once its investment is canceled", async () => {
+  await recordLink(OFFERING, USER, link("invested", { wefunderUserId: "usr_abc", investmentId: "inv_7" }), T0);
+  const { deps, calls } = fakeWefunder(() => ({ body: { data: memberLink("il_1", "bound", { wefunder_user_id: "usr_abc", investment_id: null }) } }));
+
+  const soon = await userStatus(OFFERING, USER, { ...deps, now: () => T0 + INVESTED_TTL_MS - 1, force: true });
+  assert.equal(calls.length, 0); // not every minute, and "check now" does not hurry it
+  assert.equal(soon.watching, false);
+
+  const later = await userStatus(OFFERING, USER, { ...deps, now: () => T0 + INVESTED_TTL_MS });
+  assert.deepEqual(calls.map((c) => c.path), ["/member_links/il_1"]);
+  assert.equal(later.record.linkState, "bound");
+  assert.equal(later.record.investmentId, null);
+  assert.equal(later.watching, true); // back to the once-a-minute watch
 });
 
 test("coming back from checkout may skip the minute, but not the five-second floor", async () => {

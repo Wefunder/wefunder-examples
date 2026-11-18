@@ -124,6 +124,11 @@ once the link or session has settled. Raise totals are read once a minute for ev
 The founder's table reads the two list endpoints instead, one request per page for the whole
 round.
 
+`invested` is not final. Wefunder derives a link's state on every read from the account's active
+investments, so if the investment is later canceled the link reads `bound` again. The app
+therefore re-reads an invested link every 15 minutes rather than never. A canceled investment
+also drops out of the round's totals.
+
 That budget matters: every data-room user shares the one company token, and a token gets 1,000
 requests an hour ([rate limits](https://docs.wefunder.com/guides/rate-limiting)). One user
 watching both a link and a session costs up to 120 requests an hour, so this design is

@@ -8,9 +8,9 @@ export type Raise = {
   // The round's raised figure: `total.raised_cents`. An investment counts toward it once Wefunder
   // counts it as raised, so a commitment that has not been paid yet is in `committedCents` only.
   raisedCents: number;
-  // What investors entered, canceled investments left out.
+  // What investors entered.
   committedCents: number;
-  // Investments, not people: one investor can hold several. Canceled ones are left out.
+  // Investments, not people: one investor can hold several.
   investments: number;
   byStatus: StatusRow[];
 };
@@ -21,6 +21,9 @@ export function summarize(stats: OfferingStats | null | undefined): Raise {
   const byStatus: StatusRow[] = Object.entries(stats?.by_status ?? {})
     .map(([status, row]) => ({ status, count: row.count ?? 0, committedCents: row.committed_cents ?? 0, raisedCents: row.raised_cents ?? 0 }))
     .sort((a, b) => rank(a.status) - rank(b.status));
+  // A canceled investment drops out of a company token's totals, so there is normally no
+  // `canceled` row to exclude. A user token can list its user's own canceled investments, which
+  // is why the row is left out here rather than assumed absent.
   const live = byStatus.filter((r) => r.status !== "canceled");
   return {
     currency: stats?.currency ?? "usd",
