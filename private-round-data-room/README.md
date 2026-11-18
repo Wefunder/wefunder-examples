@@ -55,7 +55,13 @@ Three rules shape the layout:
 
 ## Set it up
 
-Use the sandbox first: nothing in a sandbox realm touches live data and no money moves.
+**Where to try it.** A sandbox realm cannot run this example end to end yet: an install on the
+realm's seeded company does not carry write scopes, so both invest buttons are refused there
+(`403`). Until that changes, run it against your own company on live with your own install.
+Minting a member link and opening the round's page moves no money. To see member links and
+sessions through to a completed test investment, the
+[sandbox walkthroughs](https://docs.wefunder.com/getting-started/sandbox#walkthroughs) do both
+on the realm syndicate's open deal.
 
 1. **Create an app** in the [developer portal](https://wefunder.com/developers) and tick these
    scopes on it **before** you install it. An install carries the scopes ticked when it was made.
@@ -70,14 +76,12 @@ Use the sandbox first: nothing in a sandbox realm touches live data and no money
    `http://localhost:3000/oauth/callback`. This example has no OAuth flow; the URI is there
    because a session's return URLs must be on the origin of one of the app's registered redirect
    URIs. Without it, creating a session is a `422`. Register only origins you control.
-3. **Install the app on your company and mint an installation token.** In the sandbox, that is
-   your realm's seeded company, signed in as the seeded founder:
-   [Installing in your realm](https://docs.wefunder.com/getting-started/sandbox#installing-in-your-realm).
-   On live it is your own company: [Install your app](https://docs.wefunder.com/getting-started/install).
-   The token (`at_test_…` in the sandbox) acts as the company, not as you.
+3. **Install the app on your company and mint an installation token**:
+   [Install your app](https://docs.wefunder.com/getting-started/install). You need edit access
+   to the company for the install to carry the write scopes. The token acts as the company, not
+   as you.
 4. **Note the round's offering id** (`ofr_…`). It must be a round of the company the token is
-   installed on; any other offering is refused. In the sandbox, your realm's seeded company has
-   one open round: use it as the stand-in for your private round.
+   installed on; any other offering is refused.
 5. **Configure and run:**
 
    ```bash
@@ -87,12 +91,13 @@ Use the sandbox first: nothing in a sandbox realm touches live data and no money
    npm test                          # requests, polling rules, login cookie, the gate; no network
    ```
 
-6. **Walk it through.** Sign in as a fixture investor and press **Invest on Wefunder**. The
-   round's page opens on your realm host; invest there with a new account and the Stripe test
-   card `4242 4242 4242 4242`. Back in the data room the status turns to **Invested on
-   Wefunder** within a minute. Then try **Go straight to checkout**: it opens the hosted checkout
-   for the fixture's email and returns you to the data room. Sign in as the founder fixture and
-   open **Who has invested** to see every user's state.
+6. **Walk it through.** Sign in as a fixture investor and press **Invest on Wefunder**: the
+   round's page opens on Wefunder with the private round visible. The data room now shows
+   **Link ready, no investment yet**, and turns to **Invested on Wefunder** within a minute of an
+   investment made through that link. **Go straight to checkout** opens the hosted checkout for
+   the fixture's email (put an address you control in `lib/users.ts` first) and returns to the
+   data room. Sign in as the founder fixture and open **Who has invested** to see every user's
+   state.
 
 ## What to read
 
@@ -165,8 +170,9 @@ This is example code, not legal advice, and Wefunder does not recommend any offe
   buttons behind your login, as this example does, and give accounts only to people you are
   permitted to offer the round to. Investors self-certify that they are accredited when they
   invest on Wefunder.
-- **A Rule 506(c) round permits general solicitation**, and investors must verify that they are
-  accredited before investing, which happens on Wefunder at checkout.
+- **A Rule 506(c) round permits general solicitation.** Every investor's accredited status has
+  to be verified, not only self-certified; Wefunder handles that with the investor as part of
+  their investment.
 - **Which rule your round uses, who may be given access, and what you may show or say before a
   Reg CF is filed are questions for your securities counsel and your Wefunder contact.** Ask
   them before you open the data room, and again before you change what it shows.
@@ -186,6 +192,9 @@ same in more detail.
 - **The investor's email comes from the fixture.** An investment session is for one recipient,
   named by an email. Use an address the user has confirmed with you, never one typed into a
   form by whoever is signed in.
+- **The checkout button is always shown.** Creating an investment session is not refused when
+  the round has not opened or has closed (minting a member link is: `422 offering_not_open`), so
+  a real data room offers checkout only while the round is open.
 - **Documents are placeholders.** Serving files to signed-in users is your data room's own job.
 - **No pre-binding.** Once a member link binds, its `wefunder_user_id` is saved; passing it when
   you mint that person's next link binds the new link up front. That option is enabled per app,
