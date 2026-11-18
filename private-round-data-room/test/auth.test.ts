@@ -44,7 +44,9 @@ test("every Wefunder state has a label, and settled states stop the polling", ()
   assert.equal(linkButton(null), "Invest on Wefunder");
   assert.equal(linkButton("canceled"), "Invest on Wefunder"); // the next click mints a fresh link
   assert.equal(linkButton("bound"), "Continue on Wefunder");
-  assert.equal(sessionButton("abandoned"), "Continue checkout");
+  assert.equal(sessionButton("in_progress"), "Continue checkout"); // active: the same session comes back
+  assert.equal(sessionButton("abandoned"), "Go straight to checkout"); // not active: the next press makes a new one
+  assert.equal(sessionShown("completed").label, "Checkout finished"); // not "confirmed": payment and verification are separate
   assert.deepEqual([linkSettled("created"), linkSettled("bound"), linkSettled("invested"), linkSettled("canceled")], [false, false, true, true]);
-  assert.deepEqual([sessionSettled("pending"), sessionSettled("abandoned"), sessionSettled("completed"), sessionSettled("expired")], [false, false, true, true]);
+  assert.deepEqual([sessionSettled("pending"), sessionSettled("in_progress"), sessionSettled("abandoned"), sessionSettled("completed"), sessionSettled("expired")], [false, false, true, true, true]);
 });

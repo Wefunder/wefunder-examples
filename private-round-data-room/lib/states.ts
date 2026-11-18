@@ -29,7 +29,7 @@ export function linkButton(state: LinkState | null | undefined): string {
 
 export function sessionShown(status: SessionStatus | null | undefined): Shown {
   switch (status) {
-    case "completed": return { label: "Investment complete", tone: "success" };
+    case "completed": return { label: "Checkout finished", tone: "success" };
     case "in_progress": return { label: "Checkout in progress", tone: "info" };
     case "pending": return { label: "Checkout not opened yet", tone: "neutral" };
     case "abandoned": return { label: "Checkout left unfinished", tone: "warn" };
@@ -39,13 +39,21 @@ export function sessionShown(status: SessionStatus | null | undefined): Shown {
   }
 }
 
+// A session is ACTIVE while it is pending or in_progress (and unexpired): pressing the button
+// again gets the same one back. Anything else, `abandoned` included, is not active, so the next
+// press creates a new session.
 export function sessionButton(status: SessionStatus | null | undefined): string {
   if (status === "completed") return "Invest again at checkout";
-  if (status === "pending" || status === "in_progress" || status === "abandoned") return "Continue checkout";
+  if (status === "pending" || status === "in_progress") return "Continue checkout";
   return "Go straight to checkout";
 }
 
-// Settled: the page stops asking every few seconds. A canceled link and a finished session never
-// change again. An invested link can (see above), so lib/status.ts still re-reads it now and then.
+// Settled: the page stops asking every few seconds. A canceled link and a session that is no
+// longer active are not read again. An invested link can change (see above), so lib/status.ts
+// still re-reads it now and then.
+//
+// "Settled" is about polling, not money. `invested` and `completed` mean an investment EXISTS.
+// Neither says the payment has arrived or, on a 506(c) round, that accreditation has been
+// verified: that is on the investment record (GET /investments/{id}: status, amounts, blockers).
 export const linkSettled = (state: LinkState | null | undefined) => state === "invested" || state === "canceled";
-export const sessionSettled = (status: SessionStatus | null | undefined) => status === "completed" || status === "expired" || status === "canceled";
+export const sessionSettled = (status: SessionStatus | null | undefined) => status === "completed" || status === "abandoned" || status === "expired" || status === "canceled";

@@ -40,7 +40,7 @@ export default async function DataRoom({ searchParams }: { searchParams: Promise
       </header>
 
       {isErrorKey(error) && <div className="notice notice-danger">{MESSAGES[error]}</div>}
-      {checkout === "success" && <div className="notice notice-success">Welcome back. Confirming your investment with Wefunder; the status below updates when it is recorded.</div>}
+      {checkout === "success" && <div className="notice notice-success">Welcome back. Checking with Wefunder; the status below updates when your checkout is recorded.</div>}
       {checkout === "cancel" && <div className="notice">You left checkout before finishing. You can pick it up again below.</div>}
 
       <section className="card">

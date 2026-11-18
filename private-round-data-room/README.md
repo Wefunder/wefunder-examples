@@ -71,6 +71,7 @@ on the realm syndicate's open deal.
    | `read:investments` | raise totals (`GET /offerings/{id}/stats`) |
    | `read:invite_links`, `write:invite_links` | member links |
    | `read:investment_sessions`, `write:investment_sessions` | investment sessions (skip both with `WEFUNDER_CHECKOUT_SESSIONS=off`) |
+   | `read:companies` (with `read:public`, which every app has) | looking up the round's offering id in step 4 (the app itself never uses it) |
 
 2. **For investment sessions, register a redirect URI on this app's origin**, for example
    `http://localhost:3000/oauth/callback`. This example has no OAuth flow; the URI is there
@@ -80,8 +81,18 @@ on the realm syndicate's open deal.
    [Install your app](https://docs.wefunder.com/getting-started/install). You need edit access
    to the company for the install to carry the write scopes. The token acts as the company, not
    as you.
-4. **Note the round's offering id** (`ofr_…`). It must be a round of the company the token is
-   installed on; any other offering is refused.
+4. **Find the round's offering id** (`ofr_…`). With the installation token, your company (the
+   install's target, `co_…`) lists its own rounds, private ones included:
+
+   ```bash
+   curl https://api.wefunder.com/companies/co_YOUR_COMPANY -H "Authorization: Bearer $WEFUNDER_INSTALL_TOKEN"
+   ```
+
+   Read `data.attributes.current_raise.offering_id`, or pick the round from
+   `data.attributes.wefunder_rounds`. This needs `read:companies` on the install: without it
+   the call answers as a public visitor would see the company (a `404`, or `200` with no round
+   listed), which looks like "no round". If the round you want is not listed, ask your Wefunder
+   contact for its id. Any offering of another company is refused.
 5. **Configure and run:**
 
    ```bash
@@ -134,6 +145,18 @@ investments, so if the investment is later canceled the link reads `bound` again
 therefore re-reads an invested link every 15 minutes rather than never. A canceled investment
 also drops out of the round's totals.
 
+A session is active only while it is `pending` or `in_progress`. Pressing the button again
+then returns the same session; once it is `completed`, `abandoned`, `expired` or `canceled`
+the app stops reading it and the next press creates a new one. If another app already holds an
+active session for that person on the round, the create is refused (`409 session_conflict`).
+
+**A finished checkout is not a finished investment.** A link's `invested` and a session's
+`completed` both mean an investment exists. Neither says the payment has arrived, and on a
+506(c) round neither says the investor's accreditation has been verified. The chips say
+"Invested on Wefunder" and "Checkout finished" for that reason, never "confirmed". For what is
+still outstanding, read the investment with the `investment_id` the founder's table shows
+(`GET /investments/{id}`: `status`, `amounts`, `blockers`).
+
 That budget matters: every data-room user shares the one company token, and a token gets 1,000
 requests an hour ([rate limits](https://docs.wefunder.com/guides/rate-limiting)). One user
 watching both a link and a session costs up to 120 requests an hour, so this design is
@@ -170,9 +193,10 @@ This is example code, not legal advice, and Wefunder does not recommend any offe
   buttons behind your login, as this example does, and give accounts only to people you are
   permitted to offer the round to. Investors self-certify that they are accredited when they
   invest on Wefunder.
-- **A Rule 506(c) round permits general solicitation.** Every investor's accredited status has
-  to be verified, not only self-certified; Wefunder handles that with the investor as part of
-  their investment.
+- **A Rule 506(c) round permits general solicitation.** Each investor's accredited status must
+  then be verified, not only self-certified. Wefunder runs that verification with the investor;
+  it is separate from the attestation made at checkout and can still be pending after checkout
+  is finished.
 - **Which rule your round uses, who may be given access, and what you may show or say before a
   Reg CF is filed are questions for your securities counsel and your Wefunder contact.** Ask
   them before you open the data room, and again before you change what it shows.
